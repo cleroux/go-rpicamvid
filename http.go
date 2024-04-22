@@ -24,7 +24,7 @@ func ContextMiddleware(ctx context.Context, next http.HandlerFunc) http.HandlerF
 }
 
 // HTTPHandler is an HTTP route handler that responds with an MJPEG video stream from the rpicam-vid application.
-func (r *Rpicamvid) HTTPHandler(w http.ResponseWriter, _ *http.Request) {
+func (r *Rpicamvid) HTTPHandler(w http.ResponseWriter, req *http.Request) {
 	stream, err := r.Start()
 	if err != nil {
 		r.log.Printf("Failed to start camera: %v\n", err)
@@ -40,7 +40,13 @@ func (r *Rpicamvid) HTTPHandler(w http.ResponseWriter, _ *http.Request) {
 	partHeader := make(textproto.MIMEHeader, 1)
 	partHeader.Add("Content-Type", "image/jpeg")
 
+	ctx := req.Context()
+
 	for {
+		if ctx.Err() != nil {
+			return
+		}
+
 		img, err := stream.GetFrame()
 		if err != nil {
 			r.log.Printf("Failed to get camera frame: %v\n", err)
