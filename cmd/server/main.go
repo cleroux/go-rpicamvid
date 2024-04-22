@@ -17,8 +17,8 @@ import (
 
 var (
 	flagAddr   = flag.String("addr", "127.0.0.1:8080", "Listen on this address:port for HTTP requests")
-	flagHeight = flag.Int("height", 1280, "Video height")
-	flagWidth  = flag.Int("width", 720, "Video width")
+	flagHeight = flag.Int("height", 720, "Video height")
+	flagWidth  = flag.Int("width", 1280, "Video width")
 )
 
 func main() {
