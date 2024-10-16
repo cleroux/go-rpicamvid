@@ -28,6 +28,7 @@ func (r *Rpicamvid) HTTPHandler(w http.ResponseWriter, req *http.Request) {
 	stream, err := r.Start()
 	if err != nil {
 		r.log.Printf("Failed to start camera: %v\n", err)
+		http.Error(w, "Failed to start camera: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer stream.Close()
