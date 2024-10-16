@@ -39,6 +39,9 @@ func (r *Rpicamvid) Start() (*Stream, error) {
 		ctx, cancel := context.WithCancel(context.Background())
 		r.cancel = cancel
 
+		startupChan := make(chan error, 2)
+		defer func() { startupChan <- nil }()
+
 		// async camera frame reader
 		go func() {
 			options := []string{
@@ -54,7 +57,7 @@ func (r *Rpicamvid) Start() (*Stream, error) {
 			cmd := exec.Command("rpicam-vid", options...)
 			stdout, err := cmd.StdoutPipe()
 			if err != nil {
-				r.log.Printf("Failed to open stdout pipe: %v\n", err)
+				startupChan <- fmt.Errorf("failed to open stdout pipe: %w", err)
 				return
 			}
 
@@ -64,9 +67,12 @@ func (r *Rpicamvid) Start() (*Stream, error) {
 			scanner.Split(mjpegSplitFunc)
 
 			if err := cmd.Start(); err != nil {
-				r.log.Printf("Failed to start rpicam-vid: %v\n", err)
+				startupChan <- fmt.Errorf("failed to start rpicam-vid: %w", err)
 				return
 			}
+
+			// Startup completed OK
+			startupChan <- nil
 
 			for {
 				if ctx.Err() != nil {
@@ -125,6 +131,11 @@ func (r *Rpicamvid) Start() (*Stream, error) {
 			}
 			r.log.Printf("Camera stopped")
 		}()
+
+		// Check if the goroutine started up OK
+		if err := <-startupChan; err != nil {
+			return nil, err
+		}
 	}
 
 	frames := make(chan []byte, 2)
