@@ -29,13 +29,13 @@ func main() {
 	cam := rpicamvid.New(l, *flagWidth, *flagHeight)
 
 	// Create a context that will allow us to cancel active video streams
-	// We _could_ use this context as the HTTP Server's BaseContext but this would have the side-effect of cancelling
+	// We _could_ use this context as the HTTP Server's BaseContext but this would have the side effect of cancelling
 	// all in-flight requests, not just our video streams.
 	cancelCtx, cancelStreams := context.WithCancel(context.Background())
 
 	// Set up routes and HTTP server
 	m := http.NewServeMux()
-	m.HandleFunc("/", rpicamvid.ContextMiddleware(cancelCtx, cam.HTTPHandler))
+	m.HandleFunc("GET /", rpicamvid.ContextMiddleware(cancelCtx, cam.HTTPHandler))
 	s := http.Server{
 		Addr:    *flagAddr,
 		Handler: m,
