@@ -2,6 +2,7 @@ package rpicamvid
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -19,6 +20,7 @@ type Rpicamvid struct {
 	streams        map[streamID]chan []byte
 	height         int
 	width          int
+	buffers        sync.Pool
 }
 
 func New(log *log.Logger, width, height int, opts ...string) *Rpicamvid {
@@ -28,6 +30,11 @@ func New(log *log.Logger, width, height int, opts ...string) *Rpicamvid {
 		streams:        make(map[streamID]chan []byte),
 		height:         height,
 		width:          width,
+		buffers: sync.Pool{
+			New: func() any {
+				return bytes.Buffer{}
+			},
+		},
 	}
 }
 
@@ -62,8 +69,10 @@ func (r *Rpicamvid) Start() (*Stream, error) {
 			}
 
 			scanner := bufio.NewScanner(stdout)
-			buf := make([]byte, 0, 128*1024) // TODO: Set size based on camera resolution configuration
-			scanner.Buffer(buf, 256*1024)
+			// Estimated 24 bits per pixel
+			buf := make([]byte, 0, r.width*r.height*3)
+			// Use 4k resolution as the max
+			scanner.Buffer(buf, 3840*2160*3)
 			scanner.Split(mjpegSplitFunc)
 
 			if err := cmd.Start(); err != nil {
@@ -92,26 +101,29 @@ func (r *Rpicamvid) Start() (*Stream, error) {
 					break
 				}
 
-				// Need to copy the bytes because the scanner may read the next frame before we have a chance to send the
-				// current frame to all consumers.
+				// Need to copy the bytes because the scanner may read the next frame into the current buffer before all the
+				// stream consumers have had a chance to read it. Therefore the buffer we send to consumers must not be
+				// modified.
 				bb := scanner.Bytes()
-				img := make([]byte, len(bb))
-				copy(img, bb)
+				img := r.buffers.Get().(bytes.Buffer)
+				img.Reset()
+				img.Write(bb)
 
 				// Send frame to all viewers
 				r.lock.RLock()
 				for _, stream := range r.streams {
 					select {
-					case stream <- img:
+					case stream <- img.Bytes():
 					default:
 						// Consumer is slow, drop a frame and add the newest frame
 						// The buffer size is 2 to protect against deadlock due to consumer and this frame-dropper both reading
 						// at the same time. In that case, both frames are read and we simply add the new frame.
 						<-stream
-						stream <- img
+						stream <- img.Bytes()
 					}
 				}
 				r.lock.RUnlock()
+				r.buffers.Put(img)
 			}
 			//r.log.Debug("Sending interrupt signal to rpicam-vid")
 			if err := cmd.Process.Signal(syscall.SIGINT); err != nil {
