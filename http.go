@@ -48,31 +48,38 @@ func (r *Rpicamvid) HTTPHandler(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		img, err := stream.GetFrame()
-		if err != nil {
-			r.log.Printf("Failed to get camera frame: %v\n", err)
-			continue
-		}
+		err := func() error {
+			f, err := stream.GetFrame()
+			if err != nil {
+				r.log.Printf("Failed to get camera frame: %v\n", err)
+				return nil // continue for loop
+			}
+			defer f.Close()
 
-		partWriter, err := mimeWriter.CreatePart(partHeader)
-		if err != nil {
-			r.log.Printf("Failed to create multi-part section: %v\n", err)
-			return
-		}
-
-		if _, err := partWriter.Write(img); err != nil {
-			if errors.Is(err, syscall.EPIPE) {
-				// Client went away
-				return
+			partWriter, err := mimeWriter.CreatePart(partHeader)
+			if err != nil {
+				r.log.Printf("Failed to create multi-part section: %v\n", err)
+				return err
 			}
 
-			switch err.Error() {
-			case "http2: stream closed", "client disconnected":
-				// Client went away
-				return
+			if _, err := partWriter.Write(f.GetBytes()); err != nil {
+				if errors.Is(err, syscall.EPIPE) {
+					// Client went away
+					return err
+				}
+
+				switch err.Error() {
+				case "http2: stream closed", "client disconnected":
+					// Client went away
+					return err
+				}
+				r.log.Printf("Failed to write video frame: %v\n", err)
+				return err
 			}
-			r.log.Printf("Failed to write video frame: %v\n", err)
-			return
+			return nil
+		}()
+		if err != nil {
+			break
 		}
 	}
 }

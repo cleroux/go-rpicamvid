@@ -17,7 +17,7 @@ type Rpicamvid struct {
 	cancel         context.CancelFunc
 	lock           sync.RWMutex
 	log            *log.Logger
-	streams        map[streamID]chan []byte
+	streams        map[streamID]chan Frame
 	height         int
 	width          int
 	buffers        sync.Pool
@@ -27,7 +27,7 @@ func New(log *log.Logger, width, height int, opts ...string) *Rpicamvid {
 	return &Rpicamvid{
 		additionalOpts: opts,
 		log:            log,
-		streams:        make(map[streamID]chan []byte),
+		streams:        make(map[streamID]chan Frame),
 		height:         height,
 		width:          width,
 		buffers: sync.Pool{
@@ -102,28 +102,40 @@ func (r *Rpicamvid) Start() (*Stream, error) {
 				}
 
 				// Need to copy the bytes because the scanner may read the next frame into the current buffer before all the
-				// stream consumers have had a chance to read it. Therefore the buffer we send to consumers must not be
+				// stream consumers have had a chance to read it. Therefore, the buffer we send to consumers must not be
 				// modified.
-				bb := scanner.Bytes()
 				img := r.buffers.Get().(bytes.Buffer)
 				img.Reset()
-				img.Write(bb)
+				img.Write(scanner.Bytes())
+
+				f := Frame{
+					img: img.Bytes(),
+					wg:  &sync.WaitGroup{},
+				}
 
 				// Send frame to all viewers
 				r.lock.RLock()
+
+				f.wg.Add(len(r.streams))
+				// Return the image buffer to the sync pool when all consumers are done
+				go func() {
+					f.wg.Wait()
+					r.buffers.Put(img)
+				}()
+
 				for _, stream := range r.streams {
 					select {
-					case stream <- img.Bytes():
+					case stream <- f:
 					default:
 						// Consumer is slow, drop a frame and add the newest frame
 						// The buffer size is 2 to protect against deadlock due to consumer and this frame-dropper both reading
 						// at the same time. In that case, both frames are read and we simply add the new frame.
-						<-stream
-						stream <- img.Bytes()
+						discard := <-stream
+						discard.wg.Done()
+						stream <- f
 					}
 				}
 				r.lock.RUnlock()
-				r.buffers.Put(img)
 			}
 			//r.log.Debug("Sending interrupt signal to rpicam-vid")
 			if err := cmd.Process.Signal(syscall.SIGINT); err != nil {
@@ -150,7 +162,7 @@ func (r *Rpicamvid) Start() (*Stream, error) {
 		}
 	}
 
-	frames := make(chan []byte, 2)
+	frames := make(chan Frame, 2)
 
 	s := newStream(frames, r.stop)
 	r.streams[s.id] = frames
