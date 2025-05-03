@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -16,9 +17,10 @@ import (
 )
 
 var (
-	flagAddr   = flag.String("addr", "127.0.0.1:8080", "Listen on this address:port for HTTP requests")
-	flagHeight = flag.Int("height", 720, "Video height")
-	flagWidth  = flag.Int("width", 1280, "Video width")
+	flagAddr     = flag.String("addr", "127.0.0.1:8080", "Listen on this address:port for HTTP requests")
+	flagHeight   = flag.Int("height", 720, "Video height")
+	flagWidth    = flag.Int("width", 1280, "Video width")
+	flagRotation = flag.Int("rotation", 0, "Video rotation")
 )
 
 func main() {
@@ -26,7 +28,12 @@ func main() {
 
 	l := log.New(os.Stdout, "", log.LstdFlags)
 
-	cam := rpicamvid.New(l, *flagWidth, *flagHeight)
+	var opts []string
+	if *flagRotation != 0 {
+		opts = append(opts, "--rotation", fmt.Sprintf("%d", *flagRotation))
+	}
+
+	cam := rpicamvid.New(l, *flagWidth, *flagHeight, opts...)
 
 	// Create a context that will allow us to cancel active video streams
 	// We _could_ use this context as the HTTP Server's BaseContext but this would have the side effect of cancelling
