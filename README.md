@@ -1,6 +1,8 @@
 # go-rpicamvid
 Go (Golang) wrapper for [rpicam-vid](https://www.raspberrypi.com/documentation/computers/camera_software.html#rpicam-vid) (Raspberry Pi Video Capture Application) with stream demultiplexer and HTTP server.
 
+![image](https://github.com/user-attachments/assets/76e7c56b-62cb-4710-8c2d-d339d3727e37)
+
 The demultiplexer allows multiple concurrent stream consumers from a single rpicam-vid process.
 
 This implementation produces a MJPEG image stream.
