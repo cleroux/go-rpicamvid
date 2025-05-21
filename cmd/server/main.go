@@ -42,7 +42,7 @@ func main() {
 
 	// Set up routes and HTTP server
 	m := http.NewServeMux()
-	m.HandleFunc("GET /", rpicamvid.ContextMiddleware(cancelCtx, cam.HTTPHandler))
+	m.HandleFunc("GET /", rpicamvid.ContextMiddleware(cancelCtx, rpicamvid.ExactPathMiddleware("/", cam.HTTPHandler)))
 	s := http.Server{
 		Addr:    *flagAddr,
 		Handler: m,
