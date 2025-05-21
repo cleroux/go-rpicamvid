@@ -43,46 +43,38 @@ func (r *Rpicamvid) Start() (*Stream, error) {
 	defer r.lock.Unlock()
 
 	if len(r.streams) == 0 {
+		options := []string{
+			"--timeout", "0", // no timeout, run until explicitly closed
+			"--width", fmt.Sprintf("%d", r.width),
+			"--height", fmt.Sprintf("%d", r.height),
+			"--nopreview",
+			"--codec", "mjpeg",
+			"--flush",
+			"--output", "-", // stdout
+		}
+		options = append(options, r.additionalOpts...)
+		cmd := exec.Command("rpicam-vid", options...)
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			return nil, fmt.Errorf("failed to open stdout pipe: %w", err)
+		}
+
+		scanner := bufio.NewScanner(stdout)
+		// Estimated 24 bits per pixel
+		buf := make([]byte, 0, r.width*r.height*3)
+		// Use 4k resolution as the max
+		scanner.Buffer(buf, 3840*2160*3)
+		scanner.Split(mjpegSplitFunc)
+
+		if err := cmd.Start(); err != nil {
+			return nil, fmt.Errorf("failed to start rpicam-vid: %w", err)
+		}
+
 		ctx, cancel := context.WithCancel(context.Background())
 		r.cancel = cancel
 
-		startupChan := make(chan error, 2)
-		defer func() { startupChan <- nil }()
-
 		// async camera frame reader
 		go func() {
-			options := []string{
-				"--timeout", "0", // no timeout, run until explicitly closed
-				"--width", fmt.Sprintf("%d", r.width),
-				"--height", fmt.Sprintf("%d", r.height),
-				"--nopreview",
-				"--codec", "mjpeg",
-				"--flush",
-				"--output", "-", // stdout
-			}
-			options = append(options, r.additionalOpts...)
-			cmd := exec.Command("rpicam-vid", options...)
-			stdout, err := cmd.StdoutPipe()
-			if err != nil {
-				startupChan <- fmt.Errorf("failed to open stdout pipe: %w", err)
-				return
-			}
-
-			scanner := bufio.NewScanner(stdout)
-			// Estimated 24 bits per pixel
-			buf := make([]byte, 0, r.width*r.height*3)
-			// Use 4k resolution as the max
-			scanner.Buffer(buf, 3840*2160*3)
-			scanner.Split(mjpegSplitFunc)
-
-			if err := cmd.Start(); err != nil {
-				startupChan <- fmt.Errorf("failed to start rpicam-vid: %w", err)
-				return
-			}
-
-			// Startup completed OK
-			startupChan <- nil
-
 			for {
 				if ctx.Err() != nil {
 					break
@@ -155,11 +147,6 @@ func (r *Rpicamvid) Start() (*Stream, error) {
 			}
 			r.log.Printf("Camera stopped")
 		}()
-
-		// Check if the goroutine started up OK
-		if err := <-startupChan; err != nil {
-			return nil, err
-		}
 	}
 
 	frames := make(chan Frame, 2)
